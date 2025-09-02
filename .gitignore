@@ -10,7 +10,6 @@
 /backend/!**/src/test/**/target/
 /backend/mvnw
 /backend/mvnw.cmd
-/backend/.mvn
 
 #Frontend
 /frontend/node_modules
