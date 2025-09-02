@@ -1,5 +1,6 @@
 .idea
 *.iml
+*.pem
 
 #Backend
 /backend/HELP.md
