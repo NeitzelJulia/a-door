@@ -162,4 +162,31 @@ class SocketHandlerTest {
         handler.handleTextMessage(sender, new TextMessage("{\"event\":\"call-end\"}"));
         verify(store, atLeastOnce()).set(DoorState.IDLE);
     }
+
+    @Test
+    void handleTextMessage_setsConnecting_onIceStateConnectedOrCompleted() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"connected\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"completed\"}"));
+
+        verify(store, atLeastOnce()).set(DoorState.CONNECTING);
+    }
+
+    @Test
+    void handleTextMessage_setsIdle_onIceStateDisconnectedFailedClosed() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"disconnected\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"failed\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"closed\"}"));
+
+        verify(store, atLeastOnce()).set(DoorState.IDLE);
+    }
 }
