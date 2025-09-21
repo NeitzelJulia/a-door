@@ -1,5 +1,7 @@
 package org.example.backend.ws;
 
+import org.example.backend.model.DoorState;
+import org.example.backend.service.DoorStateStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -16,10 +18,12 @@ import static org.mockito.Mockito.*;
 class SocketHandlerTest {
 
     private SocketHandler handler;
+    private DoorStateStore store;
 
     @BeforeEach
     void setUp() {
-        handler = new SocketHandler();
+        store = mock(DoorStateStore.class);
+        handler = new SocketHandler(store);
     }
 
     private WebSocketSession mockSession(String id, boolean open) {
@@ -51,7 +55,7 @@ class SocketHandlerTest {
         handler.afterConnectionEstablished(openOther);
         handler.afterConnectionEstablished(closedOther);
 
-        TextMessage msg = new TextMessage("hello");
+        TextMessage msg = new TextMessage("hello"); // kein JSON -> Status bleibt unberührt
         handler.handleTextMessage(sender, msg);
 
         // Sender selbst darf nichts bekommen
@@ -60,6 +64,8 @@ class SocketHandlerTest {
         verify(openOther, times(1)).sendMessage(ArgumentMatchers.same(msg));
         // Geschlossene Session nicht
         verify(closedOther, never()).sendMessage(any());
+        // Keine Statusänderung, da keine bekannten Events im Payload
+        verifyNoInteractions(store);
     }
 
     @Test
@@ -70,6 +76,7 @@ class SocketHandlerTest {
         handler.handleTextMessage(only, new TextMessage("ping"));
 
         verify(only, never()).sendMessage(any());
+        verifyNoInteractions(store);
     }
 
     @Test
@@ -123,5 +130,63 @@ class SocketHandlerTest {
 
         assertThrows(IOException.class, () ->
                 handler.handleTextMessage(sender, new TextMessage("boom")));
+    }
+
+    @Test
+    void handleTextMessage_setsConnecting_onOfferAndIceConnected() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"event\":\"offer\"}"));
+        verify(store, atLeastOnce()).set(DoorState.CONNECTING);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"event\":\"ice-connected\"}"));
+        verify(store, atLeastOnce()).set(DoorState.CONNECTING);
+    }
+
+    @Test
+    void handleTextMessage_setsIdle_onByeHangupCallEnd() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"event\":\"bye\"}"));
+        verify(store, atLeastOnce()).set(DoorState.IDLE);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"event\":\"hangup\"}"));
+        verify(store, atLeastOnce()).set(DoorState.IDLE);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"event\":\"call-end\"}"));
+        verify(store, atLeastOnce()).set(DoorState.IDLE);
+    }
+
+    @Test
+    void handleTextMessage_setsConnecting_onIceStateConnectedOrCompleted() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"connected\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"completed\"}"));
+
+        verify(store, atLeastOnce()).set(DoorState.CONNECTING);
+    }
+
+    @Test
+    void handleTextMessage_setsIdle_onIceStateDisconnectedFailedClosed() throws Exception {
+        WebSocketSession sender = mockSession("A", true);
+        WebSocketSession other  = mockSession("B", true);
+        handler.afterConnectionEstablished(sender);
+        handler.afterConnectionEstablished(other);
+
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"disconnected\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"failed\"}"));
+        handler.handleTextMessage(sender, new TextMessage("{\"iceConnectionState\":\"closed\"}"));
+
+        verify(store, atLeastOnce()).set(DoorState.IDLE);
     }
 }
